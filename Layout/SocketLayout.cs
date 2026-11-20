@@ -4,10 +4,10 @@ using RectangleF = SharpDX.RectangleF;
 namespace GemHelper.Layout;
 
 /// <summary>
-/// Посокетная геометрия внутри слота предмета (M4b).
-/// Порт из Walker 3.24 (<c>Extensions/SocketLayout.cs</c> + <c>WHelper.RectangleHelper.SplitRectangleToGrid</c>)
-/// с заменой обращений к памяти на заранее прочитанные размеры из снимка.
-/// «Магические» индексы Walker сохранены без изменений.
+/// Per-socket geometry inside an item slot (M4b).
+/// Ported from Walker 3.24 (<c>Extensions/SocketLayout.cs</c> + <c>WHelper.RectangleHelper.SplitRectangleToGrid</c>)
+/// with memory reads replaced by sizes read earlier into a snapshot.
+/// Walker's magic indices are kept unchanged.
 /// </summary>
 public static class SocketLayout
 {
@@ -19,8 +19,8 @@ public static class SocketLayout
     }
 
     /// <summary>
-    /// Прямоугольники сокетов внутри прямоугольника слота (в порядке SocketIndex).
-    /// Пустой массив — геометрию посчитать не удалось (нет сокетов/размеров/неизвестная раскладка).
+    /// Socket rectangles inside the slot rectangle, ordered by SocketIndex.
+    /// An empty array means the geometry could not be computed (no sockets/sizes or unknown layout).
     /// </summary>
     public static RectangleF[] GetSocketRectangles(
         RectangleF slotRectangle,
@@ -49,12 +49,12 @@ public static class SocketLayout
         }
         catch
         {
-            // Walker бросает на rows > 3; в теории недостижимо, но лучше не падать.
+            // Walker throws for rows > 3; unreachable in theory, but better not to crash.
             return Array.Empty<RectangleF>();
         }
 
-        // Запас под «магические» индексы Walker (например, data[5] при 5 сокетах);
-        // в конце массив обрезается ровно до numberOfSockets.
+        // Extra room for Walker's magic indices (e.g. data[5] with 5 sockets);
+        // the array is trimmed to numberOfSockets at the end.
         var data = new RectangleF[Math.Max(numberOfSockets, 6)];
 
         if (splitCount.columns == 2 && splitCount.row == 3)
@@ -461,12 +461,12 @@ public static class SocketLayout
             }
         }
 
-        // Убираем запас, добавленный ради «магических» индексов.
+        // Drop the extra room added for the magic indices.
         Array.Resize(ref data, numberOfSockets);
         return data;
     }
 
-    /// <summary>Сколько строк/колонок сетки занимает предмет при данном числе сокетов.</summary>
+    /// <summary>Grid rows/columns occupied by the item for the given socket count.</summary>
     public static (int row, int columns) GetSplitCount(int numberSocket, int sizeX, int sizeY)
     {
         if (sizeX == 2)
@@ -500,7 +500,7 @@ public static class SocketLayout
         return (0, 0);
     }
 
-    /// <summary>Делит прямоугольник на горизонтальные секции (Top/Middle/Bottom).</summary>
+    /// <summary>Splits the rectangle into horizontal sections (Top/Middle/Bottom).</summary>
     public static Dictionary<VerticalPosition, List<RectangleF>> SplitRectangleWithSocketsVortical(
         RectangleF rect,
         int rows,
@@ -527,7 +527,7 @@ public static class SocketLayout
 
             for (var col = 0; col < columns; col++)
             {
-                // пример: 3 сокета вместо 4 (пропускаем правый средний)
+                // e.g. 3 sockets instead of 4 (skip the middle-right cell)
                 if (numberSocket == 3 && row == 1 && col == 0 && rows != 3)
                     continue;
 
@@ -566,7 +566,7 @@ public static class SocketLayout
         };
     }
 
-    /// <summary>Уменьшает прямоугольник вдвое вокруг центра (порт Walker).</summary>
+    /// <summary>Halves the rectangle around its center (Walker port).</summary>
     public static RectangleF HalveRectangle(RectangleF rect)
     {
         var newWidth = rect.Width / 2f;
@@ -576,7 +576,7 @@ public static class SocketLayout
         return new RectangleF(newLeft, newTop, newWidth, newHeight);
     }
 
-    /// <summary>Равномерная сетка rows × columns (порт Walker <c>RectangleHelper.SplitRectangleToGrid</c>).</summary>
+    /// <summary>Uniform rows × columns grid (Walker <c>RectangleHelper.SplitRectangleToGrid</c> port).</summary>
     private static RectangleF[,] SplitRectangleToGrid(RectangleF rect, int rows, int columns)
     {
         if (rows <= 0 || columns <= 0)

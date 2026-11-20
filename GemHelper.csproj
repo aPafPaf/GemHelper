@@ -13,10 +13,10 @@
     <!--Don't bother setting anything to do with the output path, HUD will do it for you if you put the source code inside Plugins/Source-->
 
     <!--
-      Корень HUD (там лежат ExileCore.dll, GameOffsets.dll, Hexa.NET.ImGui.dll).
-      По умолчанию — три уровня вверх от папки проекта: Plugins/Source/GemHelper -> корень HUD.
-      Можно переопределить: dotnet build -p:ExileApiDir="D:\path\to\hud"
-      ВАЖНО: специально не используем $(exapiPackage) — в системе она указывает на старую 3.24.
+      HUD root (contains ExileCore.dll, GameOffsets.dll, Hexa.NET.ImGui.dll).
+      Default: three levels up from the project folder: Plugins/Source/GemHelper -> HUD root.
+      Can be overridden: dotnet build -p:ExileApiDir="D:\path\to\hud"
+      NOTE: intentionally not using $(exapiPackage) - it points to the old 3.24 install on this machine.
     -->
     <ExileApiDir Condition="'$(ExileApiDir)' == ''">$(MSBuildProjectDirectory)\..\..\..</ExileApiDir>
   </PropertyGroup>
@@ -34,7 +34,7 @@
       <HintPath>$(ExileApiDir)\Hexa.NET.ImGui.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <!-- SharpDX нужен для Graphics.DrawFrame(RectangleF, Color, int) / DrawTextWithBackground -->
+    <!-- SharpDX is required for Graphics.DrawFrame(RectangleF, Color, int) / DrawTextWithBackground -->
     <Reference Include="SharpDX">
       <HintPath>$(ExileApiDir)\SharpDX.dll</HintPath>
       <Private>False</Private>
@@ -46,7 +46,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- ImGui.NET (NuGet) несовместим с 330.5: HUD собран под Hexa.NET.ImGui 3.1.0-test1 -->
+    <!-- ImGui.NET (NuGet) is incompatible with 330.5: the HUD is built against Hexa.NET.ImGui 3.1.0-test1 -->
     <Using Include="Hexa.NET.ImGui" />
   </ItemGroup>
 </Project>

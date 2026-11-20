@@ -12,21 +12,21 @@ using Vector2 = System.Numerics.Vector2;
 namespace GemHelper.Rendering;
 
 /// <summary>
-/// Оверлей надетых предметов: рамка слота, рамки сокетов, линии линков и компактный список гемов.
-/// M4b: посокетная геометрия считается из размеров предмета/инвентаря, прочитанных в Tick.
+/// Equipped item overlay: slot frame, socket frames, link lines and a compact gem list.
+/// M4b: per-socket geometry is computed from item/inventory sizes read during Tick.
 /// </summary>
 public static class GemOverlay
 {
-    // Высота строки списка гемов (подобрана под стандартный шрифт HUD).
+    // Gem list line height (tuned for the default HUD font).
     private const float LineHeight = 14f;
 
-    // Отступ текста от рамки предмета.
+    // Text gap from the item frame.
     private const float TextGap = 6f;
 
-    // Цвет диагностической подписи слота.
+    // Color of the diagnostic slot label.
     private static readonly Color DebugSlotColor = new(0, 255, 255);
 
-    /// <summary>Рисует рамки и подписи. Никогда не бросает исключений наружу.</summary>
+    /// <summary>Draws frames and labels. Never throws to the caller.</summary>
     public static void Draw(GameController gameController, GemHelperSettings settings, GemSnapshot snapshot, Graphics graphics)
     {
         if (gameController is null || settings is null || snapshot is null || graphics is null)
@@ -39,7 +39,7 @@ public static class GemOverlay
         {
             var panel = gameController.IngameState?.IngameUi?.InventoryPanel;
 
-            // Панель инвентаря закрыта/недоступна — рисовать нечего.
+            // Inventory panel is closed/unavailable: nothing to draw.
             if (panel is null || !panel.IsValid || !panel.IsVisible)
                 return;
 
@@ -47,7 +47,7 @@ public static class GemOverlay
             var lineHeight = ResolveLineHeight(graphics);
             var showExp = settings.OverlayShowExp.Value;
 
-            // Сокеты в снимке идут в порядке слотов, поэтому группы — подряд идущие записи слота.
+            // Snapshot sockets are ordered by slot, so groups are consecutive runs of the same slot.
             var sockets = snapshot.Sockets;
             var start = 0;
 
@@ -64,11 +64,11 @@ public static class GemOverlay
         }
         catch
         {
-            // Ошибки геометрии/памяти не должны валить рендер.
+            // Geometry/memory errors must not break rendering.
         }
     }
 
-    /// <summary>Рамка одного предмета + подписи гемов этого слота.</summary>
+    /// <summary>Frame for a single item plus the gem labels of that slot.</summary>
     private static void DrawSlot(
         GameController gameController,
         GemHelperSettings settings,
@@ -82,15 +82,18 @@ public static class GemOverlay
     {
         var slot = sockets[start].Slot;
 
+        // Per-slot settings: text visibility and offsets.
+        var slotOffset = settings.TextOffsets.For(slot);
+
         if (!EquipmentLayout.TryGetRect(gameController, slot, out var rect))
             return;
 
-        // Диагностика: подпись найденного слота в его левом верхнем углу.
-        // Перегрузка с SharpDX.Vector2 помечена [Obsolete] в 330.5 — используем System.Numerics.
+        // Diagnostics: label of the resolved slot at its top-left corner.
+        // The SharpDX.Vector2 overload is [Obsolete] in 330.5, so System.Numerics is used.
         if (settings.OverlayDebugSlots.Value)
             graphics.DrawText(slot.ToString(), new Vector2(rect.X, rect.Y), DebugSlotColor);
 
-        // Считаем гемы и заранее измеряем строки (ширина нужна для решения «справа или слева»).
+        // Count gems and measure lines up front (the width decides right vs left placement).
         var gemCount = 0;
         for (var i = start; i < end; i++)
         {
@@ -104,14 +107,19 @@ public static class GemOverlay
         var frameColor = gemCount > 0 ? Color.Yellow : Color.Gray;
         graphics.DrawFrame(rect, frameColor, 2);
 
-        // M4b: рамки сокетов и линии линков внутри предмета. Геометрия нужна и для линий «текст → сокет».
+        // M4b: socket frames and link lines inside the item. The geometry is also needed for text→socket lines.
         var boxes = DrawSocketGeometry(settings, sockets, start, end, rect, graphics);
 
         if (gemCount == 0 || !settings.OverlayShowGemNames.Value)
             return;
 
+        // Text is disabled for this slot; item/socket frames and link lines are already drawn.
+        if (!slotOffset.Show.Value)
+            return;
+
         var showIndex = settings.OverlaySocketFrames.Value;
-        var lines = new (string Text, Color Color, int SocketIndex, float Width)[gemCount];
+        var lines = new (string Main, string Suffix, Color MainColor, Color SuffixColor, int SocketIndex, float Width)[gemCount];
+        var lineColors = new Color[gemCount];
         var maxWidth = 0f;
         var index = 0;
 
@@ -122,23 +130,60 @@ public static class GemOverlay
                 continue;
 
             var text = BuildGemLine(socket, showExp, showIndex);
+
+            // Text and line colors are configured separately: socket color or a fixed color.
+            var gemTextColor = settings.OverlayUseSocketColorForText.Value
+                ? ToColor(socket.SocketColor)
+                : settings.OverlayGemTextColor.Value;
+            // Line: a transparent setting color means use the socket color; an opaque one is used as is.
+            var customLineColor = settings.OverlayGemLineColor.Value;
+            var gemLineColor = customLineColor.A == 0
+                ? ToColor(socket.SocketColor)
+                : customLineColor;
+
+            var main = text;
+            var suffix = string.Empty;
+            var mainColor = gemTextColor;
+            var suffixColor = gemTextColor;
+
+            if (socket.IsMaxLevel)
+            {
+                var maxColor = settings.OverlayMaxLevelColor.Value;
+
+                if (settings.OverlayMaxLevelRecolorWholeText.Value)
+                {
+                    // Recolor the whole MAX gem text.
+                    mainColor = maxColor;
+                }
+                else if (text.EndsWith(" MAX", StringComparison.Ordinal))
+                {
+                    // Otherwise highlight only the MAX word (drawn as a separate run).
+                    // The trailing space is kept so the text does not stick to MAX.
+                    main = text[..^4];
+                    suffix = "MAX";
+                    suffixColor = maxColor;
+                }
+            }
+
+            // Full line width, used to position the whole block.
             var width = graphics.MeasureText(text).X;
 
-            lines[index++] = (text, ToColor(socket.SocketColor), socket.SocketIndex, width);
+            lines[index] = (main, suffix, mainColor, suffixColor, socket.SocketIndex, width);
+            lineColors[index] = gemLineColor;
+            index++;
 
             if (width > maxWidth)
                 maxWidth = width;
         }
 
-        // По умолчанию текст справа от рамки; у правого края экрана переносим влево от рамки.
+        // Text goes right of the frame by default; near the right screen edge it moves to the left of the frame.
         var x = rect.Right + TextGap;
         if (windowWidth > 0f && x + maxWidth > windowWidth)
             x = rect.Left - maxWidth - TextGap;
 
         var yBase = rect.Top;
 
-        // Смещение блока: общее для всех слотов + индивидуальное для этого слота.
-        var slotOffset = settings.TextOffsets.For(slot);
+        // Block offset: global for all slots plus per-slot for this one.
         x += settings.OverlayTextOffsetX.Value + slotOffset.X.Value;
         yBase += settings.OverlayTextOffsetY.Value + slotOffset.Y.Value;
 
@@ -147,33 +192,58 @@ public static class GemOverlay
         if (yBase < 0f)
             yBase = 0f;
 
-        // Линии «строка текста → сокет» рисуем до текста, чтобы подписи были сверху.
+        // Draw text→socket lines before the text so the labels stay on top.
         if (settings.OverlayTextToSocketLines.Value && boxes.Length > 0)
-            DrawTextToSocketLines(lines, boxes, x, yBase, lineHeight, maxWidth, rect, graphics);
+        {
+            DrawTextToSocketLines(
+                lines,
+                lineColors,
+                boxes,
+                x,
+                yBase,
+                lineHeight,
+                maxWidth,
+                rect,
+                settings.OverlayGemLineThickness.Value,
+                graphics);
+        }
 
         for (var i = 0; i < lines.Length; i++)
         {
             var y = yBase + i * lineHeight;
-            graphics.DrawTextWithBackground(lines[i].Text, new Vector2(x, y), lines[i].Color, Color.Black);
+
+            graphics.DrawTextWithBackground(lines[i].Main, new Vector2(x, y), lines[i].MainColor, Color.Black);
+
+            if (lines[i].Suffix.Length > 0)
+            {
+                var mainWidth = graphics.MeasureText(lines[i].Main).X;
+                graphics.DrawTextWithBackground(
+                    lines[i].Suffix,
+                    new Vector2(x + mainWidth, y),
+                    lines[i].SuffixColor,
+                    Color.Black);
+            }
         }
     }
 
     /// <summary>
-    /// Тонкие линии от края блока подписей к центру соответствующего сокета.
-    /// Анкер по X зависит от стороны: текст справа — линия начинается у его левого края,
-    /// текст слева — у правого края блока (см. <c>textOnRight</c>).
+    /// Thin lines from the label block edge to the matching socket center.
+    /// The X anchor depends on the side: for text on the right the line starts at its left edge,
+    /// for text on the left at the block's right edge (see <c>textOnRight</c>).
     /// </summary>
     private static void DrawTextToSocketLines(
-        (string Text, Color Color, int SocketIndex, float Width)[] lines,
+        (string Main, string Suffix, Color MainColor, Color SuffixColor, int SocketIndex, float Width)[] lines,
+        Color[] lineColors,
         RectangleF[] boxes,
         float x,
         float yBase,
         float lineHeight,
         float maxWidth,
         RectangleF rect,
+        float thickness,
         Graphics graphics)
     {
-        // С какой стороны от предмета стоит блок текста.
+        // Which side of the item the text block is on.
         var textOnRight = x >= rect.Center.X;
 
         for (var i = 0; i < lines.Length; i++)
@@ -191,19 +261,19 @@ public static class GemOverlay
 
             var center = box.Center;
 
-            // Не-obsolete перегрузка 330.5 — System.Numerics.Vector2.
+            // Non-obsolete 330.5 overload: System.Numerics.Vector2.
             graphics.DrawLine(
                 new Vector2(anchorX, lineY),
                 new Vector2(center.X, center.Y),
-                1.5f,
-                lines[i].Color);
+                thickness,
+                lineColors[i]);
         }
     }
 
     /// <summary>
-    /// Посокетная геометрия предмета: рамки сокетов по цвету и линии линков между соседними сокетами.
-    /// Геометрия берётся из снимка (ItemSizeX/Y, InventoryColumns/Rows, InventoryType, TotalSockets).
-    /// Возвращает прямоугольники сокетов (для линий «текст → сокет») или пустой массив.
+    /// Per-socket item geometry: socket frames colored by socket and link lines between adjacent sockets.
+    /// The geometry comes from the snapshot (ItemSizeX/Y, InventoryColumns/Rows, InventoryType, TotalSockets).
+    /// Returns the socket rectangles (for text→socket lines) or an empty array.
     /// </summary>
     private static RectangleF[] DrawSocketGeometry(
         GemHelperSettings settings,
@@ -215,7 +285,7 @@ public static class GemOverlay
     {
         var first = sockets[start];
 
-        // totalSockets: максимум из снимка, иначе — число записей группы.
+        // totalSockets: max from the snapshot, otherwise the number of group entries.
         var totalSockets = 0;
         for (var i = start; i < end; i++)
         {
@@ -240,14 +310,14 @@ public static class GemOverlay
         }
         catch
         {
-            // Кривая геометрия не должна ломать оверлей.
+            // Bad geometry must not break the overlay.
             rects = Array.Empty<RectangleF>();
         }
 
         if (rects.Length == 0)
             return Array.Empty<RectangleF>();
 
-        // SocketIndex -> запись снимка (нужна для цвета рамки).
+        // SocketIndex -> snapshot entry (needed for the frame color).
         var byIndex = new Dictionary<int, GemSocketSnapshot>(end - start);
         for (var i = start; i < end; i++)
             byIndex[sockets[i].SocketIndex] = sockets[i];
@@ -260,24 +330,35 @@ public static class GemOverlay
             var box = SocketLayout.HalveRectangle(rects[i]);
             boxes[i] = box;
 
-            if (!settings.OverlaySocketFrames.Value)
-                continue;
+            byIndex.TryGetValue(i, out var socket);
 
-            if (box.Width <= 0f || box.Height <= 0f)
-                continue;
+            // Regular socket frame.
+            if (settings.OverlaySocketFrames.Value && box.Width > 0f && box.Height > 0f)
+            {
+                var color = socket is null ? Color.Gray : ToColor(socket.SocketColor);
+                graphics.DrawFrame(box, color, 2);
+            }
 
-            var color = byIndex.TryGetValue(i, out var socket) ? ToColor(socket.SocketColor) : Color.Gray;
-            graphics.DrawFrame(box, color, 2);
+            // Max level gem: extra outer frame (drawn even without the regular frames).
+            if (settings.OverlayHighlightMaxLevelGems.Value
+                && socket is { IsEmpty: false, IsMaxLevel: true }
+                && box.Width > 0f
+                && box.Height > 0f)
+            {
+                var outer = new RectangleF(box.X - 2f, box.Y - 2f, box.Width + 4f, box.Height + 4f);
+                graphics.DrawFrame(outer, settings.OverlayMaxLevelColor.Value, settings.OverlayMaxLevelThickness.Value);
+            }
         }
 
         if (settings.OverlayLinkLines.Value)
-            DrawLinkLines(byIndex, boxes, graphics);
+            DrawLinkLines(settings, byIndex, boxes, graphics);
 
         return boxes;
     }
 
-    /// <summary>Линии внутри групп линков: соединяем соседние (по SocketIndex) сокеты одной группы.</summary>
+    /// <summary>Lines within link groups: connect adjacent (by SocketIndex) sockets of the same group.</summary>
     private static void DrawLinkLines(
+        GemHelperSettings settings,
         Dictionary<int, GemSocketSnapshot> byIndex,
         RectangleF[] boxes,
         Graphics graphics)
@@ -322,22 +403,22 @@ public static class GemOverlay
                 if (boxA.Width <= 0f || boxA.Height <= 0f || boxB.Width <= 0f || boxB.Height <= 0f)
                     continue;
 
-                // Перегрузка с SharpDX.Vector2 помечена [Obsolete] в 330.5 — используем System.Numerics.
+                // The SharpDX.Vector2 overload is [Obsolete] in 330.5, so System.Numerics is used.
                 var centerA = boxA.Center;
                 var centerB = boxB.Center;
 
                 graphics.DrawLine(
                     new Vector2(centerA.X, centerA.Y),
                     new Vector2(centerB.X, centerB.Y),
-                    2f,
-                    Color.Yellow);
+                    settings.OverlayLinkLineThickness.Value,
+                    settings.OverlayLinkLineColor.Value);
             }
         }
     }
 
     /// <summary>
-    /// Высота строки подписи: не меньше константы, но растёт под крупный шрифт HUD.
-    /// Ошибка измерения не критична — откатываемся к константе.
+    /// Label line height: at least the constant, but it grows for a larger HUD font.
+    /// A measurement failure is not critical, so fall back to the constant.
     /// </summary>
     private static float ResolveLineHeight(Graphics graphics)
     {
@@ -354,7 +435,7 @@ public static class GemOverlay
     private static bool HasGem(GemSocketSnapshot socket)
         => !socket.IsEmpty && !string.IsNullOrEmpty(socket.GemName);
 
-    /// <summary>Строка гема: <c>[i] Имя L{level} [Q{quality}] [42%|MAX]</c>.</summary>
+    /// <summary>Gem line: <c>[i] Name L{level} [Q{quality}] [42%|MAX]</c>.</summary>
     private static string BuildGemLine(GemSocketSnapshot socket, bool showExp, bool prefixIndex)
     {
         var name = prefixIndex
@@ -389,7 +470,7 @@ public static class GemOverlay
         }
     }
 
-    /// <summary>Цвет подписи по цвету сокета (палитра M4a).</summary>
+    /// <summary>Label color by socket color (M4a palette).</summary>
     private static Color ToColor(SocketColor socketColor) => socketColor switch
     {
         SocketColor.Red => new Color(255, 90, 90),

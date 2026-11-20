@@ -4,8 +4,8 @@ using SocketColorEnum = ExileCore.Shared.Enums.SocketColor;
 namespace GemHelper.Core;
 
 /// <summary>
-/// Неизменяемая запись об одном сокете надетого предмета.
-/// Создаётся в <see cref="GemSnapshotReader"/> и только читается в рендере.
+/// Immutable record of a single socket of an equipped item.
+/// Created in <see cref="GemSnapshotReader"/> and only read during rendering.
 /// </summary>
 public sealed record GemSocketSnapshot(
     InventorySlotE Slot,
@@ -35,7 +35,7 @@ public sealed record GemSocketSnapshot(
     int MaxLevel = 0,
     uint ExpToNext = 0)
 {
-    /// <summary>Короткий код цвета сокета для отладочного вывода: R/G/B/W/A/S.</summary>
+    /// <summary>Short socket color code for debug output: R/G/B/W/A/S.</summary>
     public string SocketColorCode => SocketColor switch
     {
         SocketColorEnum.Red => "R",
@@ -48,8 +48,8 @@ public sealed record GemSocketSnapshot(
     };
 
     /// <summary>
-    /// Готовая строка для отладочной панели, например
-    /// <c>Helm1 [0] R link=0 — Fireball L20 Q20 (req 70)</c> или
+    /// Ready-to-use string for the debug panel, e.g.
+    /// <c>Helm1 [0] R link=0 — Fireball L20 Q20 (req 70)</c> or
     /// <c>Helm1 [1] G link=0 — empty</c>.
     /// </summary>
     public string DisplayName => IsEmpty

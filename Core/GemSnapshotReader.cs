@@ -9,12 +9,12 @@ using GameOffsets;
 namespace GemHelper.Core;
 
 /// <summary>
-/// Чтение гемов из сокетов надетых предметов.
-/// Все обращения к памяти игры — защитные: ошибка одного слота/гема не должна валить Tick.
+/// Reads gems from sockets of equipped items.
+/// All game memory access is guarded: a failure of one slot/gem must never break Tick.
 /// </summary>
 public static class GemSnapshotReader
 {
-    /// <summary>Слоты экипировки, в которых нас интересуют сокеты (включая второй набор оружия).</summary>
+    /// <summary>Equipment slots whose sockets we care about (including the second weapon set).</summary>
     private static readonly InventorySlotE[] EquippedSlots =
     {
         InventorySlotE.Helm1,
@@ -31,25 +31,25 @@ public static class GemSnapshotReader
         InventorySlotE.Offhand2,
     };
 
-    // Дедупликация сообщений: читаем память каждый тик, поэтому лог не должен спамить.
+    // Message deduplication: memory is read every tick, so the log must not spam.
     private const int MaxLoggedMessages = 64;
     private static readonly HashSet<string> LoggedMessages = new(StringComparer.Ordinal);
     private static readonly object LogLock = new();
 
-    // Кумулятивный опыт обычного гема (max level 20) по уровням: индекс = level - 1.
+    // Cumulative experience of a normal gem (max level 20) per level: index = level - 1.
     private static readonly uint[] GemCumulativeExp =
     {
         0, 70, 308, 927, 2280, 4908, 9590, 17564, 30536, 51012,
         82746, 131368, 205048, 315864, 481484, 727896, 1094904, 1639248, 2447448, 3644748,
     };
 
-    // Диапазон сканирования пары (prev, max) при самокалибровке оффсетов.
+    // Scan range for the (prev, max) pair during offset self-calibration.
     private const int ExpScanStart = 0x18;
     private const int ExpScanEnd = 0x60;
     private const int ExpScanStep = 4;
 
-    // Текущие оффсеты пары опыт/опыт-следующего-уровня. В 330.5 поля могли сдвинуться,
-    // поэтому они не readonly: при первом удобном геме пара калибруется по таблице опыта.
+    // Current offsets of the exp / next-level-exp pair. Fields may have shifted in 330.5,
+    // so they are not readonly: on the first suitable gem the pair is calibrated against the exp table.
     private static int _expPrevOffset = TryGetFieldOffset(nameof(SkillGemOffsets.ExperiencePrevLevel));
     private static int _expMaxOffset = TryGetFieldOffset(nameof(SkillGemOffsets.ExperienceMaxLevel));
     private static bool _expOffsetsCalibrated;
@@ -66,11 +66,11 @@ public static class GemSnapshotReader
         }
     }
 
-    /// <summary>Пара (prev, max) согласуется с суммарным опытом гема.</summary>
+    /// <summary>The (prev, max) pair is consistent with the gem total experience.</summary>
     private static bool IsValidExpPair(uint prev, uint max, uint totalExp)
         => max > prev && prev <= totalExp && totalExp <= max;
 
-    /// <summary>Процент прогресса до следующего уровня; вне диапазона — 0..100.</summary>
+    /// <summary>Progress percentage to the next level; clamped to 0..100.</summary>
     private static float CalcExpPercent(uint totalExp, uint prev, uint max)
     {
         if (max <= prev)
@@ -80,7 +80,7 @@ public static class GemSnapshotReader
         return (float)Math.Clamp((current - prev) * 100.0 / (max - prev), 0d, 100d);
     }
 
-    /// <summary>Отклонение значения от табличного не больше ~1%.</summary>
+    /// <summary>Value deviates from the table value by no more than ~1%.</summary>
     private static bool IsCloseToTable(uint value, uint expected)
     {
         var diff = value >= expected ? (long)value - expected : (long)expected - value;
@@ -88,8 +88,8 @@ public static class GemSnapshotReader
     }
 
     /// <summary>
-    /// Однократная самокалибровка пары (prev, max): ищем в SkillGem два подряд идущих uint,
-    /// совпадающих с табличными границами текущего уровня. Сначала точное совпадение, затем ±1%.
+    /// One-time self-calibration of the (prev, max) pair: look for two consecutive uints in SkillGem
+    /// matching the table boundaries of the current level. Exact match first, then ±1%.
     /// </summary>
     private static bool TryCalibrateExpOffsets(
         IMemory memory,
@@ -105,7 +105,7 @@ public static class GemSnapshotReader
         if (_expOffsetsCalibrated)
             return false;
 
-        // Калибруемся только по обычным гемам и «серединным» уровням (у 1 и 20 границы тривиальны).
+        // Calibrate only on normal gems and "middle" levels (boundaries at 1 and 20 are trivial).
         if (gemLevel < 2 || gemLevel > 19 || maxLevel != 20)
             return false;
 
@@ -133,7 +133,7 @@ public static class GemSnapshotReader
                     continue;
                 }
 
-                // Точное совпадение с таблицей — лучший вариант.
+                // Exact match with the table is the best case.
                 if (first == expectedPrev && second == expectedMax)
                 {
                     CommitExpOffsets(offset, first, second, out prev, out max);
@@ -156,7 +156,7 @@ public static class GemSnapshotReader
         }
         catch
         {
-            // Скан не должен ломать Capture.
+            // The scan must not break Capture.
         }
 
         return false;
@@ -171,13 +171,13 @@ public static class GemSnapshotReader
         resultPrev = prev;
         resultMax = max;
 
-        // Один раз за процесс: полезно для диагностики, не спамит.
+        // Once per process: useful for diagnostics, does not spam.
         LogOnce($"exp offsets calibrated: prev=0x{offset:X}, max=0x{offset + 4:X}");
     }
 
     /// <summary>
-    /// Fallback по <c>SkillGem.ExperienceToNextLevel</c>: свойство может означать как «осталось»,
-    /// так и «требуется на уровень», а может быть основано на багованном ExperiencePrevLevel.
+    /// Fallback via <c>SkillGem.ExperienceToNextLevel</c>: the property may mean either "remaining"
+    /// or "required for the level", and may be based on a bugged ExperiencePrevLevel.
     /// </summary>
     private static bool TryCalcPercentFromExpToNext(
         int gemLevel,
@@ -204,15 +204,15 @@ public static class GemSnapshotReader
         if (required == 0)
             return false;
 
-        // Сколько опыта уже набрано внутри текущего уровня (0..required).
+        // Experience already gained within the current level (0..required).
         var inLevel = totalExp > tablePrev ? Math.Min(totalExp - tablePrev, required) : 0u;
 
-        // Кандидат «осталось опыта»: если свойство действительно означает остаток, оно должно
-        // быть близко к этому значению.
+        // "Remaining experience" candidate: if the property really means the remainder, it should
+        // be close to this value.
         var remainingCandidate = required - inLevel;
 
-        // Расстояния до двух гипотез — выбираем ту, что ближе. Так значение, равное required
-        // (исправленное свойство «сколько нужно на уровень»), больше не даёт 0 %.
+        // Distances to the two hypotheses — pick the closer one. This way a value equal to required
+        // (the fixed "how much is needed for the level" property) no longer yields 0%.
         var distFixed = expToNext >= required
             ? (long)expToNext - required
             : (long)required - expToNext;
@@ -223,19 +223,19 @@ public static class GemSnapshotReader
 
         if (distRemaining < distFixed)
         {
-            // Свойство = «осталось опыта» (не больше required, иначе ветка недостижима).
+            // Property = "remaining experience" (not greater than required, otherwise unreachable).
             var remaining = expToNext < required ? required - expToNext : 0u;
 
             percent = (float)Math.Clamp(remaining * 100.0 / required, 0d, 100d);
             return true;
         }
 
-        // Свойство = «нужно опыта на уровень» (или неоднозначно при 0 % прогресса).
+        // Property = "experience needed for the level" (or ambiguous at 0% progress).
         percent = (float)Math.Clamp(inLevel * 100.0 / required, 0d, 100d);
         return true;
     }
 
-    /// <summary>Надетый предмет вместе с геометрией инвентаря (нужна M4b для посокетных рамок).</summary>
+    /// <summary>Equipped item together with inventory geometry (needed by M4b for per-socket frames).</summary>
     private readonly record struct EquippedItemInfo(
         Entity Item,
         int SizeX,
@@ -245,7 +245,7 @@ public static class GemSnapshotReader
         InventoryTypeE InventoryType);
 
     /// <summary>
-    /// Строит снимок сокетов всех надетых предметов. Никогда не бросает исключений наружу.
+    /// Builds a socket snapshot of all equipped items. Never throws outwards.
     /// </summary>
     public static GemSnapshot Capture(GameController gameController)
     {
@@ -266,7 +266,7 @@ public static class GemSnapshotReader
         if (inventories is null)
             return GemSnapshot.Empty;
 
-        // Память нужна для чтения ExperiencePrevLevel/ExperienceMaxLevel из SkillGemOffsets.
+        // Memory is needed to read ExperiencePrevLevel/ExperienceMaxLevel from SkillGemOffsets.
         IMemory? memory = null;
         try
         {
@@ -274,7 +274,7 @@ public static class GemSnapshotReader
         }
         catch
         {
-            // Без памяти прогресс опыта будет 0 — это не критично.
+            // Without memory the exp progress is 0 — not critical.
         }
 
         var sockets = new List<GemSocketSnapshot>(24);
@@ -298,13 +298,95 @@ public static class GemSnapshotReader
             }
         }
 
-        return new GemSnapshot(sockets, DateTime.UtcNow);
+        var inventoryGems = CaptureInventoryGems(inventories);
+
+        return new GemSnapshot(sockets, DateTime.UtcNow, inventoryGems);
     }
 
     /// <summary>
-    /// Дешёвый «отпечаток» инвентарей игрока: хэш пар (InventSlot, ServerRequestCounter),
-    /// отсортированных по слоту. Позволяет не читать предметы/гемы, если сервер ничего не менял.
-    /// При любой ошибке возвращает 0.
+    /// Gems from the main inventory — Swap candidates. Active/support gems only
+    /// (requires the <c>SkillGem</c> component). Never throws outwards.
+    /// </summary>
+    private static List<InventoryGemInfo> CaptureInventoryGems(IList<InventoryHolder> inventories)
+    {
+        var result = new List<InventoryGemInfo>(64);
+
+        try
+        {
+            InventoryHolder? holder = null;
+
+            for (var i = 0; i < inventories.Count; i++)
+            {
+                if (inventories[i]?.TypeId == InventoryNameE.MainInventory1)
+                {
+                    holder = inventories[i];
+                    break;
+                }
+            }
+
+            var items = holder?.Inventory?.InventorySlotItems;
+            if (items is null)
+                return result;
+
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i]?.Item;
+                if (item is null || item.Address == 0)
+                    continue;
+
+                try
+                {
+                    if (!item.IsValid)
+                        continue;
+
+                    if (!item.TryGetComponent<SkillGem>(out var skillGem) || skillGem is null)
+                        continue;
+
+                    if (!item.TryGetComponent<Base>(out var @base) || @base is null)
+                        continue;
+
+                    var name = @base.Name;
+                    if (string.IsNullOrEmpty(name))
+                        continue;
+
+                    var level = skillGem.Level;
+
+                    var maxLevel = 0;
+                    try
+                    {
+                        maxLevel = skillGem.MaxLevel;
+                    }
+                    catch
+                    {
+                        // Without MaxLevel fall back to the usual cap of 20.
+                    }
+
+                    var isMaxLevel = maxLevel > 0 ? level >= maxLevel : level >= 20;
+
+                    var quality = 0;
+                    if (item.TryGetComponent<Quality>(out var qualityComponent) && qualityComponent is not null)
+                        quality = qualityComponent.ItemQuality;
+
+                    result.Add(new InventoryGemInfo(name, level, maxLevel, isMaxLevel, item.Address, quality));
+                }
+                catch (Exception ex)
+                {
+                    LogOnce($"inventory gem: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogOnce($"MainInventory1: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Cheap "fingerprint" of the player inventories: hash of (InventSlot, ServerRequestCounter) pairs
+    /// sorted by slot. Lets us skip reading items/gems when the server changed nothing.
+    /// Returns 0 on any error.
     /// </summary>
     public static int CaptureServerCounter(GameController gameController)
     {
@@ -328,7 +410,7 @@ public static class GemSnapshotReader
                 pairs.Add(((int)inventory.InventSlot, inventory.ServerRequestCounter));
             }
 
-            // Сортировка по слоту — чтобы порядок не зависел от порядка списка в памяти.
+            // Sort by slot so the result does not depend on the memory list order.
             pairs.Sort(static (left, right) => left.Slot.CompareTo(right.Slot));
 
             var hash = new HashCode();
@@ -349,7 +431,7 @@ public static class GemSnapshotReader
         }
     }
 
-    /// <summary>Ищем инвентарь по <c>InventSlot</c>, а не по индексу в списке.</summary>
+    /// <summary>Find an inventory by <c>InventSlot</c>, not by index in the list.</summary>
     private static InventoryHolder? FindInventory(IList<InventoryHolder> inventories, InventorySlotE slot)
     {
         for (var i = 0; i < inventories.Count; i++)
@@ -367,8 +449,8 @@ public static class GemSnapshotReader
     }
 
     /// <summary>
-    /// Надетый предмет и его геометрия: первый слот инвентаря, при пустом списке — первый из <c>Items</c>.
-    /// Геометрия нужна M4b для посокетных рамок.
+    /// Equipped item and its geometry: first inventory slot, or the first entry of <c>Items</c>
+    /// when the slot list is empty. The geometry is needed by M4b for per-socket frames.
     /// </summary>
     private static bool GetEquippedItem(ServerInventory? inventory, out EquippedItemInfo info)
     {
@@ -383,8 +465,8 @@ public static class GemSnapshotReader
 
         if (item is null)
         {
-            // В 330.5 ServerInventory.Item — это индексатор this[x, y], а не «предмет целиком»,
-            // поэтому fallback берём из плоского списка Items.
+            // In 330.5 ServerInventory.Item is the this[x, y] indexer, not the "whole item",
+            // so the fallback comes from the flat Items list.
             var items = inventory.Items;
             if (items is { Count: > 0 })
                 item = items[0];
@@ -399,11 +481,11 @@ public static class GemSnapshotReader
         var sizeX = slotItem?.SizeX ?? 0;
         var sizeY = slotItem?.SizeY ?? 0;
 
-        // У инвентарей экипировки Columns/Rows могут приходить нулевыми — подстраховываемся размерами предмета.
+        // Equipment inventories may report zero Columns/Rows — fall back to the item size.
         var columns = inventory.Columns > 0 ? inventory.Columns : sizeX;
         var rows = inventory.Rows > 0 ? inventory.Rows : sizeY;
 
-        // И наоборот: размеры предмета могут быть 0 — берём размеры инвентаря.
+        // And vice versa: the item size may be 0 — take the inventory size.
         if (sizeX <= 0)
             sizeX = inventory.Columns;
         if (sizeY <= 0)
@@ -413,7 +495,7 @@ public static class GemSnapshotReader
         return true;
     }
 
-    /// <summary>Добавляет по записи на каждый сокет предмета (обычный путь или R1-fallback).</summary>
+    /// <summary>Adds one entry per item socket (normal path or R1 fallback).</summary>
     private static void AppendSockets(
         EquippedItemInfo info,
         InventorySlotE slot,
@@ -438,7 +520,7 @@ public static class GemSnapshotReader
         AppendFromFallback(sockets, slot, info, totalSockets, itemName, itemClassName, memory, target);
     }
 
-    /// <summary>Обычный путь: <c>Sockets.SocketInfo</c> содержит цвет, линк и сущность гема.</summary>
+    /// <summary>Normal path: <c>Sockets.SocketInfo</c> contains color, link and the gem entity.</summary>
     private static void AppendFromSocketInfo(
         List<Sockets.Socket> socketInfo,
         InventorySlotE slot,
@@ -478,8 +560,8 @@ public static class GemSnapshotReader
     }
 
     /// <summary>
-    /// R1: <c>SocketInfo</c> пуст (мусор в памяти при больших линках), но гемы/цвета известны.
-    /// Цвета берём из <c>SocketList</c>, гемы — из <c>SocketedGems</c>; LinkGroup неизвестен (-1).
+    /// R1: <c>SocketInfo</c> is empty (memory garbage with large links), but gems/colors are known.
+    /// Colors come from <c>SocketList</c>, gems from <c>SocketedGems</c>; LinkGroup is unknown (-1).
     /// </summary>
     private static void AppendFromFallback(
         Sockets sockets,
@@ -530,7 +612,7 @@ public static class GemSnapshotReader
         }
     }
 
-    /// <summary>Ищет гем, привязанный к сокету с указанным физическим индексом.</summary>
+    /// <summary>Finds the gem bound to the socket with the given physical index.</summary>
     private static Entity? FindSocketedGem(List<Sockets.SocketedGem>? socketedGems, int socketIndex)
     {
         if (socketedGems is null)
@@ -549,7 +631,7 @@ public static class GemSnapshotReader
         return null;
     }
 
-    /// <summary>Имя и класс предмета (защитно: у некоторых предметов может не быть <c>Base</c>).</summary>
+    /// <summary>Item name and class (guarded: some items may have no <c>Base</c>).</summary>
     private static (string Name, string ClassName) ReadItemBase(Entity item)
     {
         try
@@ -569,7 +651,7 @@ public static class GemSnapshotReader
         return (string.Empty, string.Empty);
     }
 
-    /// <summary>Один сокет: цвет, линк и (если есть) данные гема.</summary>
+    /// <summary>Single socket: color, link and (if present) gem data.</summary>
     private static GemSocketSnapshot BuildSocket(
         InventorySlotE slot,
         int socketIndex,
@@ -614,28 +696,30 @@ public static class GemSnapshotReader
                         gemLevel = skillGem.Level;
                         totalExp = skillGem.TotalExpGained;
 
-                        // Подсказка на случай, если оффсеты пары не сойдутся (может быть багованной),
-                        // поэтому используем только как fallback для процента.
+                        // Hint in case the pair offsets do not line up (may be bugged),
+                        // so it is used only as a fallback for the percentage.
                         try
                         {
                             expToNext = skillGem.ExperienceToNextLevel;
                         }
                         catch
                         {
-                            // Свойство может кидать — считаем, что подсказки нет.
+                            // The property may throw — treat it as no hint.
                         }
 
-                        // MaxLevel — «потолок» гема (20/40 и т.п.); на нём показываем MAX.
+                        // MaxLevel is the gem "cap" (20/40 etc.); MAX is shown at that level.
                         try
                         {
                             gemMaxLevel = skillGem.MaxLevel;
                         }
                         catch
                         {
-                            // Без MaxLevel считаем, что уровень не максимальный.
+                            // Without MaxLevel assume the level is not max.
                         }
 
-                        isMaxLevel = gemMaxLevel > 0 && gemLevel >= gemMaxLevel;
+                        // If MaxLevel was not read (0), treat the usual level 20 as max.
+                        isMaxLevel = (gemMaxLevel > 0 && gemLevel >= gemMaxLevel)
+                                     || (gemMaxLevel == 0 && gemLevel >= 20);
 
                         if (isMaxLevel)
                         {
@@ -643,7 +727,7 @@ public static class GemSnapshotReader
                         }
                         else
                         {
-                            // 1. Пара prev/max по текущим оффсетам — если согласуется с TotalExp.
+                            // 1. prev/max pair at the current offsets — if consistent with TotalExp.
                             var hasExpSource = false;
 
                             if (memory is not null && _expPrevOffset >= 0 && _expMaxOffset >= 0)
@@ -662,7 +746,7 @@ public static class GemSnapshotReader
                                 }
                             }
 
-                            // 2. Пара невалидна — однократная самокалибровка оффсетов по таблице опыта.
+                            // 2. The pair is invalid — one-time self-calibration of offsets against the exp table.
                             if (!hasExpSource && memory is not null)
                             {
                                 hasExpSource = TryCalibrateExpOffsets(
@@ -680,7 +764,7 @@ public static class GemSnapshotReader
                             }
                             else if (gemLevel is >= 1 and <= 19 && (gemMaxLevel == 20 || gemMaxLevel == 0))
                             {
-                                // 3. Оффсеты не сошлись — считаем по известной таблице.
+                                // 3. Offsets did not match — compute from the known table.
                                 expPrev = GemCumulativeExp[gemLevel - 1];
                                 expMax = GemCumulativeExp[gemLevel];
                                 expPercent = CalcExpPercent(totalExp, expPrev, expMax);
@@ -692,7 +776,7 @@ public static class GemSnapshotReader
                                 expMax = 0;
                             }
 
-                            // 4. Совсем нет валидных данных (или получился 0) — пробуем ExperienceToNextLevel.
+                            // 4. No valid data at all (or the result is 0) — try ExperienceToNextLevel.
                             if (!hasExpSource || expPercent <= 0f)
                             {
                                 if (TryCalcPercentFromExpToNext(
@@ -707,7 +791,7 @@ public static class GemSnapshotReader
                             }
                         }
 
-                        // RequiredLevel внутри ExileCore лениво лезет в GrantedEffect и может кидать.
+                        // Inside ExileCore RequiredLevel lazily touches GrantedEffect and may throw.
                         try
                         {
                             requiredLevel = skillGem.RequiredLevel;
@@ -757,7 +841,7 @@ public static class GemSnapshotReader
             ExpToNext: expToNext);
     }
 
-    /// <summary>Пишет сообщение в лог HUD только один раз (и не больше <see cref="MaxLoggedMessages"/>).</summary>
+    /// <summary>Writes a message to the HUD log only once (and no more than <see cref="MaxLoggedMessages"/>).</summary>
     private static void LogOnce(string message)
     {
         lock (LogLock)
@@ -775,7 +859,7 @@ public static class GemSnapshotReader
         }
         catch
         {
-            // Логирование не должно ронять чтение снимка.
+            // Logging must never break snapshot reading.
         }
     }
 }

@@ -8,19 +8,19 @@ using Vector2 = SharpDX.Vector2;
 namespace GemHelper.Layout;
 
 /// <summary>
-/// Геометрия слотов экипировки на панели инвентаря (M4a/M4b).
-/// Основной путь — порт Walker (<c>EquippedItemResolver.GetSlotRectangle</c>): относительные позиции
-/// из Slots.json + поиск дочернего элемента, содержащего точку слота.
-/// <c>InventoryPanel.GetElementSlot(InventoryIndex)</c> в 330.5 отдаёт смещённые элементы,
-/// поэтому он оставлен только как последний fallback.
+/// Equipment slot geometry on the inventory panel (M4a/M4b).
+/// Primary path is a Walker port (<c>EquippedItemResolver.GetSlotRectangle</c>): relative positions
+/// from Slots.json plus a search for the child element containing the slot point.
+/// In 330.5 <c>InventoryPanel.GetElementSlot(InventoryIndex)</c> returns offset elements,
+/// so it is kept only as the last fallback.
 /// </summary>
 public static class EquipmentLayout
 {
-    // Отступ от найденной относительной точки, чтобы попасть внутрь прямоугольника слота.
+    // Offset from the resolved relative point to land inside the slot rectangle.
     private const float SlotProbeOffset = 10f;
 
-    // Относительные координаты (0..1) внутри InventoryPanel — из Walker Data/Slots/Slots.json.
-    // Для Weapon2/Offhand2 позиций нет: они всегда идут через fallback.
+    // Relative coordinates (0..1) inside InventoryPanel, taken from Walker Data/Slots/Slots.json.
+    // Weapon2/Offhand2 have no positions: they always go through the fallback path.
     private static readonly Dictionary<InventorySlotE, Vector2> SlotPositions = new()
     {
         [InventorySlotE.BodyArmour1] = new Vector2(0.41987833f, 0.20999998f),
@@ -36,8 +36,8 @@ public static class EquipmentLayout
     };
 
     /// <summary>
-    /// Прямоугольник слота экипировки в координатах окна игры.
-    /// false — панель инвентаря недоступна/невалидна или слот не найден ни одним способом.
+    /// Equipment slot rectangle in game window coordinates.
+    /// false: the inventory panel is unavailable/invalid or the slot was not found by any method.
     /// </summary>
     public static bool TryGetRect(GameController gameController, InventorySlotE slot, out RectangleF rect)
     {
@@ -48,32 +48,32 @@ public static class EquipmentLayout
 
         try
         {
-            // InventoryPanel — UI-элемент панели экипировки/инвентаря.
+            // InventoryPanel is the equipment/inventory panel UI element.
             var panel = gameController.IngameState?.IngameUi?.InventoryPanel;
             if (panel is null || !panel.IsValid)
                 return false;
 
-            // 0. Приоритетный путь: UI-элемент надетого предмета из VisibleInventoryItems.
+            // 0. Preferred path: UI element of the equipped item from VisibleInventoryItems.
             if (TryGetByVisibleItem(panel, slot, out rect))
                 return true;
 
-            // 1. Основной путь Walker: относительная позиция слота + поиск по дочерним элементам.
+            // 1. Main Walker path: slot relative position plus child element lookup.
             if (TryGetByPositions(panel, slot, out rect))
                 return true;
 
-            // 2/3. Fallback: InventoryUIElement инвентаря слота, затем GetElementSlot (в 330.5 может быть смещён).
+            // 2/3. Fallback: the slot inventory's InventoryUIElement, then GetElementSlot (may be offset in 330.5).
             return TryGetByInventory(panel, slot, out rect);
         }
         catch
         {
-            // Невалидная память/элементы UI не должны валить рендер.
+            // Invalid memory/UI elements must not break rendering.
             return false;
         }
     }
 
     /// <summary>
-    /// Приоритетный путь: в инвентаре слота (<c>panel[index]</c>) лежит UI-элемент надетого предмета
-    /// в <c>VisibleInventoryItems</c>. Не зависит от относительных позиций, поэтому работает и для swap-слотов.
+    /// Preferred path: the slot inventory (<c>panel[index]</c>) holds the equipped item's UI element
+    /// in <c>VisibleInventoryItems</c>. Independent of relative positions, so it also works for swap slots.
     /// </summary>
     private static bool TryGetByVisibleItem(InventoryElement panel, InventorySlotE slot, out RectangleF rect)
     {
@@ -99,14 +99,14 @@ public static class EquipmentLayout
         }
         catch
         {
-            // panel[index] может бросать для swap-слотов — просто идём дальше по fallback'ам.
+            // panel[index] may throw for swap slots, so just continue with the fallbacks.
             return false;
         }
     }
 
     /// <summary>
-    /// Порт Walker: считаем абсолютную точку слота от прямоугольника панели и ищем элемент
-    /// в <c>Children[3]</c> (EquipmentItems), чей прямоугольник содержит эту точку.
+    /// Walker port: compute the slot's absolute point from the panel rectangle and find the element
+    /// in <c>Children[3]</c> (EquipmentItems) whose rectangle contains that point.
     /// </summary>
     private static bool TryGetByPositions(InventoryElement panel, InventorySlotE slot, out RectangleF rect)
     {
@@ -128,7 +128,7 @@ public static class EquipmentLayout
         if (children is null || children.Count <= 3)
             return false;
 
-        // Children[3] — EquipmentItems (как в Walker).
+        // Children[3] is EquipmentItems (same as Walker).
         var equipment = children[3];
         if (equipment is null || !equipment.IsValid)
             return false;
@@ -158,8 +158,8 @@ public static class EquipmentLayout
     }
 
     /// <summary>
-    /// Fallback: <c>panel[index]?.InventoryUIElement</c> (UI-элемент инвентаря слота),
-    /// затем <c>panel.GetElementSlot(index)</c> — в 330.5 индексы смещены, поэтому это последний вариант.
+    /// Fallback: <c>panel[index]?.InventoryUIElement</c> (the slot inventory's UI element),
+    /// then <c>panel.GetElementSlot(index)</c>; indices are offset in 330.5, so this is the last resort.
     /// </summary>
     private static bool TryGetByInventory(InventoryElement panel, InventorySlotE slot, out RectangleF rect)
     {
@@ -178,7 +178,7 @@ public static class EquipmentLayout
         }
         catch
         {
-            // Смещённый индекс в 330.5 может дать невалидную память — переходим к GetElementSlot.
+            // An offset index in 330.5 may yield invalid memory, so fall through to GetElementSlot.
         }
 
         try
@@ -206,7 +206,7 @@ public static class EquipmentLayout
         return true;
     }
 
-    /// <summary>Слот серверного инвентаря → индекс слота на панели инвентаря.</summary>
+    /// <summary>Server inventory slot to inventory panel slot index.</summary>
     private static bool TryMapSlot(InventorySlotE slot, out InventoryIndex index)
     {
         switch (slot)
