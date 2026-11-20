@@ -18,6 +18,11 @@ gem with the best non-`MAX` gem from the inventory). Both actions are started ma
 1. Copy the `GemHelper` folder to `<HUD root>\Plugins\Source\`.
 2. Restart the HUD (it compiles the plugin into `Plugins\Temp\GemHelper`).
 3. Enable **GemHelper** in the plugin list — `Enable` is off by default.
+
+Build manually (the HUD root is resolved three folders above the project):
+
+```powershell
+dotnet build .\GemHelper.csproj -c Debug [-p:ExileApiDir="D:\path\to\hud"]
 ```
 
 Requires ExileApi **330.5** and .NET SDK 10.
@@ -45,6 +50,15 @@ Requires ExileApi **330.5** and .NET SDK 10.
 
 `TextOffsets` adjusts text position per slot; `OverlayDebugSlots` labels detected slots.
 
+## Notes
+
+- The plugin clicks through `ExileCore.Input`, so the game window must be focused and the inventory open;
+  the HUD overlay is hidden during operations and restored afterwards.
+- Only the main inventory is used for `Swap` targets and `Unequip` placement.
+- The window shows a `build=` tag — if it does not change after an update, the HUD is running an old assembly.
+- Automated clicking may violate the game's terms of service. Use at your own risk.
+
+<div align="center">
 
 ```
     █████╗ ███╗   ███╗███╗   ██╗██╗   ██╗ █████╗ ███╗   ███╗
@@ -54,3 +68,5 @@ Requires ExileApi **330.5** and .NET SDK 10.
    ██║  ██║██║ ╚═╝ ██║██║ ╚████║   ██║   ██║  ██║██║ ╚═╝ ██║
    ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝
 ```
+
+</div>
