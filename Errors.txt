@@ -1,0 +1,2 @@
+Build failed:
+[20.11.2026 14:10:21, D:\GH\ExileApi-Compiled-330.5\Plugins\Source\GemHelper\Layout\EquipmentLayout.cs(137, 39)] CS1061: "Inventory" не содержит определения "Item", и не удалось найти доступный метод расширения "Item", принимающий тип "Inventory" в качестве первого аргумента (возможно, пропущена директива using или ссылка на сборку).
