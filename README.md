@@ -19,9 +19,6 @@ gem with the best non-`MAX` gem from the inventory). Both actions are started ma
 2. Restart the HUD (it compiles the plugin into `Plugins\Temp\GemHelper`).
 3. Enable **GemHelper** in the plugin list — `Enable` is off by default.
 
-
-Requires ExileApi **330.5** and .NET SDK 10.
-
 ## Usage
 
 1. Open the character/inventory panel in game.
